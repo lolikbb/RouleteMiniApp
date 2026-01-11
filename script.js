@@ -49,7 +49,7 @@ class RouletteGame {
         const prizes = [
             {
                 id: 1,
-                name: "CS2 Чит",
+                name: "Neverlose Cs2",
                 description: "30 дней подписки",
                 icon: "fas fa-shield-alt",
                 type: "cheat",
@@ -69,7 +69,7 @@ class RouletteGame {
             },
             {
                 id: 3,
-                name: "Премиум Конфиг",
+                name: "gamesense beta cfg",
                 description: "Профессиональный",
                 icon: "fas fa-sliders-h",
                 type: "config",
@@ -79,7 +79,7 @@ class RouletteGame {
             },
             {
                 id: 4,
-                name: "Lua Скрипт",
+                name: "evalate beta",
                 description: "Эксклюзивные функции",
                 icon: "fas fa-code",
                 type: "lua",
