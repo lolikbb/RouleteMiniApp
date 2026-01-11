@@ -2,33 +2,36 @@ from aiohttp import web
 import json
 import hashlib
 import hmac
-import config
-from database import Session, User, check_daily_roll_available
 from datetime import datetime, timedelta
-import secrets
 import random
+import secrets
+
+# Для тестирования без проверки Telegram
+DEBUG_MODE = True
 
 async def verify_telegram_data(data):
     """Верификация данных от Telegram"""
+    if DEBUG_MODE:
+        return True  # Пропускаем проверку для тестирования
+    
     try:
         if not data:
             return False
             
-        # Получаем хэш из данных
         data_hash = data.get('hash', '')
         data_dict = {k: v for k, v in data.items() if k != 'hash'}
         
-        # Сортируем ключи
         data_check_string = '\n'.join([f"{k}={v}" for k, v in sorted(data_dict.items())])
         
-        # Создаем секретный ключ
+        # Здесь должен быть ваш BOT_TOKEN
+        BOT_TOKEN = "8539456626:AAFTKxd-RFtmuEAJEFLvtWKV85yDFr9ffoQ"
+        
         secret_key = hmac.new(
             key=b"WebAppData",
-            msg=config.Config.BOT_TOKEN.encode(),
+            msg=BOT_TOKEN.encode(),
             digestmod=hashlib.sha256
         ).digest()
         
-        # Проверяем хэш
         hmac_hash = hmac.new(
             key=secret_key,
             msg=data_check_string.encode(),
@@ -36,247 +39,195 @@ async def verify_telegram_data(data):
         ).hexdigest()
         
         return hmac_hash == data_hash
-    except Exception as e:
-        print(f"Verification error: {e}")
+    except:
         return False
 
-async def get_user_data(request):
-    """Получение данных пользователя"""
-    data = await request.json()
-    
-    if not await verify_telegram_data(data.get('initData', {})):
-        return web.json_response({'error': 'Invalid data'}, status=403)
-    
-    user_id = data['user_id']
-    
-    with Session() as session:
-        user = session.query(User).filter_by(user_id=user_id).first()
-        
-        if user:
-            next_roll_time = None
-            if user.last_daily_roll:
-                next_roll_time = user.last_daily_roll + timedelta(hours=24)
-                if datetime.now() >= next_roll_time:
-                    user.daily_roll_available = True
-                    session.commit()
-                    next_roll_time = None
-            
-            return web.json_response({
-                'balance': user.balance,
-                'daily_available': user.daily_roll_available,
-                'next_roll_time': next_roll_time.isoformat() if next_roll_time else None
-            })
-    
-    return web.json_response({'error': 'User not found'}, status=404)
+# Хранилище данных (вместо БД для тестирования)
+users_data = {}
+history_data = {}
 
-async def spin_roulette(request):
-    """Обработка спина рулетки с проверкой времени"""
-    data = await request.json()
-    
-    if not await verify_telegram_data(data.get('initData', {})):
-        return web.json_response({'error': 'Invalid data'}, status=403)
-    
-    user_id = data['user_id']
-    
-    with Session() as session:
-        user = session.query(User).filter_by(user_id=user_id).first()
+async def handle_user_data(request):
+    """Получение данных пользователя"""
+    try:
+        data = await request.json()
+        user_id = data.get('user_id')
         
-        if not user:
-            return web.json_response({'error': 'User not found'}, status=404)
+        if not user_id:
+            return web.json_response({'error': 'No user_id'}, status=400)
+        
+        # Инициализируем пользователя если его нет
+        if user_id not in users_data:
+            users_data[user_id] = {
+                'balance': 10.0,
+                'daily_available': True,
+                'last_roll': None,
+                'next_roll_time': None
+            }
+        
+        user = users_data[user_id]
         
         # Проверяем доступность рулетки
-        if not user.daily_roll_available:
-            # Проверяем, прошло ли 24 часа
-            if user.last_daily_roll:
-                time_since_last_roll = datetime.now() - user.last_daily_roll
-                if time_since_last_roll < timedelta(hours=24):
-                    next_roll_time = user.last_daily_roll + timedelta(hours=24)
-                    return web.json_response({
-                        'error': 'Рулетка доступна раз в 24 часа',
-                        'next_roll_time': next_roll_time.isoformat()
-                    })
-                else:
-                    user.daily_roll_available = True
-                    session.commit()
+        if user['last_roll']:
+            last_roll = datetime.fromisoformat(user['last_roll'])
+            next_roll = last_roll + timedelta(hours=24)
+            now = datetime.now()
+            
+            if now >= next_roll:
+                user['daily_available'] = True
+                user['next_roll_time'] = None
             else:
-                user.daily_roll_available = True
-                session.commit()
+                user['daily_available'] = False
+                user['next_roll_time'] = next_roll.isoformat()
         
-        # Рулетка недоступна
-        if not user.daily_roll_available:
-            return web.json_response({'error': 'Рулетка недоступна'}, status=400)
+        return web.json_response({
+            'balance': user['balance'],
+            'daily_available': user['daily_available'],
+            'next_roll_time': user['next_roll_time']
+        })
         
-        # Определяем призы и их вероятности
+    except Exception as e:
+        print(f"Error in handle_user_data: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+async def handle_spin_roulette(request):
+    """Обработка спина рулетки"""
+    try:
+        data = await request.json()
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return web.json_response({'error': 'No user_id'}, status=400)
+        
+        # Проверяем пользователя
+        if user_id not in users_data:
+            users_data[user_id] = {
+                'balance': 10.0,
+                'daily_available': True,
+                'last_roll': None
+            }
+        
+        user = users_data[user_id]
+        
+        # Проверяем доступность
+        if not user['daily_available']:
+            return web.json_response({
+                'error': 'Рулетка доступна раз в 24 часа',
+                'next_roll_time': user.get('next_roll_time')
+            }, status=400)
+        
+        # Определяем призы
         prizes = [
             {'name': 'NEVERLOSE Чит', 'type': 'cheat', 'probability': 2},
+            {'name': '10 NLE', 'type': 'nle', 'probability': 5, 'amount': 10},
             {'name': 'Премиум Конфиг', 'type': 'config', 'probability': 8},
-            {'name': 'Lua Скрипт', 'type': 'lua', 'probability': 15},
-            {'name': '500 NLE', 'type': 'nle', 'probability': 10, 'amount': 500},
-            {'name': '250 NLE', 'type': 'nle', 'probability': 15, 'amount': 250},
-            {'name': '100 NLE', 'type': 'nle', 'probability': 20, 'amount': 100},
-            {'name': 'Попробуйте снова', 'type': 'retry', 'probability': 30}
+            {'name': 'Lua Скрипт', 'type': 'lua', 'probability': 10},
+            {'name': '5 NLE', 'type': 'nle', 'probability': 15, 'amount': 5},
+            {'name': '1 NLE', 'type': 'nle', 'probability': 20, 'amount': 1},
+            {'name': 'Попробуйте снова', 'type': 'retry', 'probability': 40}
         ]
         
-        # Выбираем случайный приз
-        total_probability = sum(p['probability'] for p in prizes)
-        random_value = random.uniform(0, total_probability)
-        
+        # Выбираем приз
+        total = sum(p['probability'] for p in prizes)
+        roll = random.randint(0, total)
         cumulative = 0
-        selected_prize = None
+        selected = None
         
         for prize in prizes:
             cumulative += prize['probability']
-            if random_value <= cumulative:
-                selected_prize = prize
+            if roll <= cumulative:
+                selected = prize
                 break
         
-        if not selected_prize:
-            selected_prize = prizes[-1]
+        if not selected:
+            selected = prizes[-1]
         
-        # Обновляем время последнего спина
-        user.last_daily_roll = datetime.now()
-        user.daily_roll_available = False
+        # Обновляем данные пользователя
+        user['last_roll'] = datetime.now().isoformat()
+        user['daily_available'] = False
+        user['next_roll_time'] = (datetime.now() + timedelta(hours=24)).isoformat()
         
         result = {
-            'success': True,
-            'prize_name': selected_prize['name'],
-            'prize_type': selected_prize['type'],
-            'next_roll_time': (datetime.now() + timedelta(hours=24)).isoformat()
+            'success': selected['type'] != 'retry',
+            'prize_name': selected['name'],
+            'prize_type': selected['type'],
+            'next_roll_time': user['next_roll_time']
         }
         
-        # Обработка выигрыша
-        roll_history = user.roll_history or []
-        
-        if selected_prize['type'] == 'cheat':
-            # Генерируем ключ для чита
-            cheat_key = f"NL-{secrets.token_hex(8).upper()}"
-            user.has_cheat = True
-            user.cheat_key = cheat_key
-            user.cheat_loader_url = "https://neverlose.cc/download/loader.exe"
-            user.cheat_expires = datetime.now() + timedelta(days=30)
-            result['key'] = cheat_key
-            
-            roll_history.append({
-                'date': datetime.now().isoformat(),
-                'prize': selected_prize['name'],
-                'type': 'cheat',
-                'description': '30 дней подписки'
-            })
-            
-        elif selected_prize['type'] == 'config':
-            # Добавляем конфиг
-            configs = user.configs or []
-            config_id = len(configs) + 1
-            configs.append({
-                'id': config_id,
-                'name': 'Premium Config',
-                'download_url': 'https://neverlose.cc/configs/premium.zip'
-            })
-            user.configs = configs
-            result['download_url'] = 'https://neverlose.cc/configs/premium.zip'
-            
-            roll_history.append({
-                'date': datetime.now().isoformat(),
-                'prize': selected_prize['name'],
-                'type': 'config',
-                'description': 'Профессиональная настройка'
-            })
-            
-        elif selected_prize['type'] == 'lua':
-            # Добавляем Lua скрипт
-            luas = user.luas or []
-            lua_id = len(luas) + 1
-            luas.append({
-                'id': lua_id,
-                'name': 'Premium Lua Script',
-                'download_url': 'https://neverlose.cc/luas/premium.lua'
-            })
-            user.luas = luas
-            result['download_url'] = 'https://neverlose.cc/luas/premium.lua'
-            
-            roll_history.append({
-                'date': datetime.now().isoformat(),
-                'prize': selected_prize['name'],
-                'type': 'lua',
-                'description': 'Эксклюзивные функции'
-            })
-            
-        elif selected_prize['type'] == 'nle':
-            # Добавляем NLE
-            amount = selected_prize.get('amount', 0)
-            user.balance += amount
-            result['amount'] = amount
-            result['new_balance'] = user.balance
-            
-            roll_history.append({
-                'date': datetime.now().isoformat(),
-                'prize': selected_prize['name'],
-                'type': 'nle',
-                'description': f'{amount} внутренней валюты'
-            })
-            
-        else:  # retry
-            result['success'] = False
+        # Обрабатываем выигрыш
+        if selected['type'] == 'cheat':
+            result['key'] = f"NL-{secrets.token_hex(8).upper()}"
+        elif selected['type'] in ['config', 'lua']:
+            result['download_url'] = "https://neverlose.cc/download"
+        elif selected['type'] == 'nle':
+            result['amount'] = selected['amount']
+            user['balance'] += selected['amount'] / 100
+            result['new_balance'] = user['balance']
+        else:
             result['message'] = 'Попробуйте снова завтра!'
-            
-            roll_history.append({
-                'date': datetime.now().isoformat(),
-                'prize': selected_prize['name'],
-                'type': 'retry',
-                'description': 'Повторите попытку'
-            })
         
-        # Сохраняем историю
-        user.roll_history = roll_history
-        session.commit()
+        # Сохраняем в историю
+        if user_id not in history_data:
+            history_data[user_id] = []
+        
+        history_data[user_id].append({
+            'date': datetime.now().isoformat(),
+            'prize': selected['name'],
+            'type': selected['type'],
+            'description': selected.get('amount', 'Приз')
+        })
         
         return web.json_response(result)
-
-async def get_history(request):
-    """Получение истории рулетки пользователя"""
-    data = await request.json()
-    
-    if not await verify_telegram_data(data.get('initData', {})):
-        return web.json_response({'error': 'Invalid data'}, status=403)
-    
-    user_id = data['user_id']
-    
-    with Session() as session:
-        user = session.query(User).filter_by(user_id=user_id).first()
         
-        if user:
-            history = user.roll_history or []
-            # Сортируем по дате (новые первыми)
-            history.sort(key=lambda x: x.get('date', ''), reverse=True)
-            return web.json_response(history)
-    
-    return web.json_response([])
+    except Exception as e:
+        print(f"Error in handle_spin_roulette: {e}")
+        return web.json_response({'error': str(e)}, status=500)
 
-async def clear_history(request):
-    """Очистка истории рулетки"""
-    data = await request.json()
-    
-    if not await verify_telegram_data(data.get('initData', {})):
-        return web.json_response({'error': 'Invalid data'}, status=403)
-    
-    user_id = data['user_id']
-    
-    with Session() as session:
-        user = session.query(User).filter_by(user_id=user_id).first()
+async def handle_get_history(request):
+    """Получение истории"""
+    try:
+        data = await request.json()
+        user_id = data.get('user_id')
         
-        if user:
-            user.roll_history = []
-            session.commit()
-            return web.json_response({'success': True})
-    
-    return web.json_response({'error': 'User not found'}, status=404)
+        if not user_id:
+            return web.json_response([], status=200)
+        
+        history = history_data.get(user_id, [])
+        # Сортируем по дате (новые первыми)
+        history.sort(key=lambda x: x['date'], reverse=True)
+        
+        return web.json_response(history[:10])  # Последние 10 записей
+        
+    except Exception as e:
+        print(f"Error in handle_get_history: {e}")
+        return web.json_response([], status=200)
+
+async def handle_clear_history(request):
+    """Очистка истории"""
+    try:
+        data = await request.json()
+        user_id = data.get('user_id')
+        
+        if user_id and user_id in history_data:
+            history_data[user_id] = []
+        
+        return web.json_response({'success': True})
+        
+    except Exception as e:
+        print(f"Error in handle_clear_history: {e}")
+        return web.json_response({'error': str(e)}, status=500)
 
 # Настройка routes
 app = web.Application()
-app.router.add_post('/api/user-data', get_user_data)
-app.router.add_post('/api/spin-roulette', spin_roulette)
-app.router.add_post('/api/get-history', get_history)
-app.router.add_post('/api/clear-history', clear_history)
+
+app.router.add_post('/api/user-data', handle_user_data)
+app.router.add_post('/api/spin-roulette', handle_spin_roulette)
+app.router.add_post('/api/get-history', handle_get_history)
+app.router.add_post('/api/clear-history', handle_clear_history)
+
+# Статические файлы
+app.router.add_static('/', path='./', name='static')
 
 if __name__ == '__main__':
-    web.run_app(app, port=8081)
+    print("🚀 Mini App API запущен на http://localhost:8080")
+    print("📱 Для Telegram используйте ngrok с HTTPS")
+    web.run_app(app, port=8080)
