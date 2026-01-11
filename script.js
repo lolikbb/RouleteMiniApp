@@ -49,7 +49,7 @@ class RouletteGame {
         const prizes = [
             {
                 id: 1,
-                name: "Neverlose Cs2",
+                name: "Neverlose Cs2 30d",
                 description: "30 дней подписки",
                 icon: "fas fa-shield-alt",
                 type: "cheat",
@@ -312,7 +312,7 @@ class RouletteGame {
             { name: "Neverlose Cs2 30d", type: "cheat", probability: 2 },
             { name: "5 NLE", type: "nle", probability: 5, amount: 5 },
             { name: "gamesense beta cfg", type: "config", probability: 8 },
-            { name: "evalate beta", type: "lua", probability: 10 },
+            { name: "evalate beta", type: "lua", probability: 3 },
             { name: "2.5 NLE", type: "nle", probability: 15, amount: 2.5 },
             { name: "1 NLE", type: "nle", probability: 20, amount: 1 },
             { name: "Попробуйте снова", type: "retry", probability: 40 }
