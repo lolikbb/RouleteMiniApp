@@ -263,13 +263,54 @@
         .item-icon {
             width: 50px;
             height: 50px;
+            min-width: 50px;
+            min-height: 50px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             margin-bottom: 10px;
-            font-size: 20px;
+            font-size: 22px;           /* Единый размер для всех иконок */
             color: white;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .item-icon i {
+            font-size: 22px;           /* Тот же размер, что и у контейнера */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            line-height: 1;
+        }
+
+        /* ДЛЯ ИКОНОК С КОИНАМИ (NLE) - специальные настройки */
+        .icon-nle i.fa-coins {
+            font-size: 20px;           /* Чуть меньше для монет */
+            transform: scale(0.95);    /* Легкое масштабирование */
+        }
+
+        /* ДЛЯ ИКОНКИ ПОВТОРИТЬ */
+        .icon-retry i.fa-redo {
+            font-size: 20px;
+            transform: scale(0.95);
+        }
+
+        /* ДЛЯ ИКОНКИ КОДА (Lua) */
+        .icon-lua i.fa-code {
+            font-size: 21px;
+        }
+
+        /* ДЛЯ ИКОНКИ НАСТРОЕК (Конфиг) */
+        .icon-config i.fa-sliders-h {
+            font-size: 21px;
+        }
+
+        /* ДЛЯ ИКОНКИ ЩИТА (Чит) */
+        .icon-cheat i.fa-shield-alt {
+            font-size: 21px;
         }
 
         .icon-cheat {
